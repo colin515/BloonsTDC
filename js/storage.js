@@ -3,7 +3,7 @@
   const key='bloonstdc.profile.v1';
   const salt='TDC:Sunrise-Delta:2026';
   const defaults=()=>({version:1,mm:250,level:1,xp:0,selectedHero:'viper',sound:true,music:false,auto:false,
-    stats:{},medals:{},claimed:{},instas:[],powers:{cash_drop:1,portable_pool:1,pontoon:1},upgrades:{},cases:{}});
+    settings:{sfxVolume:80,musicVolume:50,damage:true,quality:"high",ranges:false,shake:true,banks:false},stats:{},medals:{},claimed:{},instas:[],powers:{cash_drop:1,portable_pool:1,pontoon:1},upgrades:{},cases:{}});
   const object=val=>val && typeof val==='object' && !Array.isArray(val);
   const dictionary=(val,valid,filter=()=>true)=>Object.fromEntries(
     (object(val)?Object.entries(val):[]).filter(([k,v])=>/^[a-zA-Z0-9_/-]+$/.test(k) && filter(k) && valid(v)));
@@ -30,6 +30,7 @@
     const base=defaults();
     return {...base,mm:p.mm,level:Math.max(1,count(p.level)?p.level:1),xp:count(p.xp)?p.xp:0,
       selectedHero:Object.hasOwn(G.heroById,p.selectedHero)?p.selectedHero:base.selectedHero,
+      settings:{...base.settings,...Object.fromEntries(Object.entries(object(p.settings)?p.settings:{}).filter(([k,v])=>Object.hasOwn(base.settings,k)&&(k==="quality"?["low","medium","high"].includes(v):typeof base.settings[k]==="number"?count(v)&&v<=100:typeof v==="boolean")))},
       sound:p.sound!==false,music:p.music===true,auto:p.auto===true,
       stats:dictionary(p.stats,count),medals:dictionary(p.medals,flag),claimed:dictionary(p.claimed,flag),
       powers:dictionary(p.powers,count,k=>G.powers.some(x=>x.id===k)),

@@ -25,6 +25,7 @@
       <span class="pill xp" title="Account level and experience"><b id="account-level">LVL 1</b><progress id="account-xp" value="0" max="100" aria-label="Account experience"></progress></span>
       <button type="button" id="sound" class="icon-button" title="Toggle effects" aria-label="Toggle effects">♪</button>
       <button type="button" id="music" class="icon-button" title="Toggle music" aria-label="Toggle music">♫</button>
+      <button type="button" id="settings" class="quiet">⚙ Settings</button>
       <button type="button" id="backup" class="quiet">Backup</button>
     </div>
   </header>
@@ -32,6 +33,7 @@
     <section id="home" class="screen">
       <div class="hero-banner">
         <canvas id="home-art" width="1200" height="800" aria-hidden="true"></canvas>
+        <div class="hero-podium"><canvas id="home-hero-canvas" width="220" height="220" aria-hidden="true"></canvas><strong id="home-hero-name"></strong><small id="home-hero-title"></small><button type="button" class="quiet" data-go="heroes">Change Hero</button></div>
         <div class="banner-content">
           <span class="banner-rule" aria-hidden="true">✦ <span></span></span>
           <h1>Bloons<span>TDC</span></h1>
@@ -41,9 +43,9 @@
       </div>
       <nav class="home-nav" aria-label="Game menu">
         <button type="button" data-go="heroes"><b aria-hidden="true">★</b><span>Heroes<small>Choose your commander</small></span></button>
-        <button type="button" data-go="cases"><b aria-hidden="true">▣</b><span>Case Shop<small>Unlock tower Instas</small></span></button>
+        <button type="button" data-go="cases"><b aria-hidden="true">▣</b><span id="case-badge" class="badge" hidden="hidden"></span><span>Case Shop<small>Unlock tower Instas</small></span></button>
         <button type="button" data-go="shop"><b aria-hidden="true">ϟ</b><span>Powers<small>Gear and account upgrades</small></span></button>
-        <button type="button" data-go="tasks"><b aria-hidden="true">✓</b><span>Tasks<small>Claim your rewards</small></span></button>
+        <button type="button" data-go="tasks"><b aria-hidden="true">✓</b><span id="task-badge" class="badge" hidden="hidden"></span><span>300 Tasks<small>Claim your rewards</small></span></button>
         <button type="button" data-go="instas"><b aria-hidden="true">✦</b><span>Insta Collection<small>Deploy pre-upgraded towers</small></span></button>
       </nav>
     </section>
@@ -68,6 +70,7 @@
     <section id="tasks" class="screen" hidden="hidden">
       <div class="section-head"><button type="button" class="quiet" data-go="home">← Menu</button><h1>Tasks</h1></div>
       <div class="filters"><label>Category <select id="task-category" aria-label="Task category"></select></label><label>Search <input type="search" id="task-search" placeholder="Search tasks" /></label><label class="check"><input type="checkbox" id="task-ready" /> Claimable only</label></div>
+      <button type="button" id="claim-all" class="green">Claim All Ready (0)</button>
       <div id="task-count" class="subtle"></div><div id="task-list" class="task-list"></div>
     </section>
     <section id="instas" class="screen" hidden="hidden">
@@ -83,6 +86,7 @@
       <div class="board-layout">
         <div class="game-view">
           <canvas id="board" width="1200" height="800" tabindex="0" aria-label="Tower defense map. Select a tower, then choose a point off the path."></canvas>
+          <div id="wave-warning" role="status" hidden="hidden"></div>
           <div id="hint" aria-live="polite"></div>
           <div id="sandbox-drawer" hidden="hidden">
             <label for="enemy-type">Enemy</label><select id="enemy-type"></select>
@@ -103,6 +107,7 @@
       </div>
     </section>
   </main>
+  <div id="tower-tooltip" role="tooltip" hidden="hidden"></div>
   <div id="toast" role="status" aria-live="polite" hidden="hidden"></div>
   <dialog id="modal" aria-labelledby="modal-title">
     <header><h2 id="modal-title"></h2><button type="button" id="modal-close" class="icon-button" title="Close" aria-label="Close">×</button></header>
