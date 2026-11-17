@@ -1,4 +1,4 @@
-import type { ForgeWorld } from './world';
+import type { Entity, ForgeWorld } from './world';
 export type Cell = { x: number; y: number; type: number; amount: number };
 const size = .5;
 const limit = 2600;
@@ -37,16 +37,41 @@ export class FluidGrid {
     }
     return added;
   }
-  transfer(ax: number, ay: number, bx: number, by: number, max: number, world: ForgeWorld) {
+  transfer(ax: number, ay: number, bx: number, by: number, max: number, world: ForgeWorld, source?:Entity, destination?:Entity) {
+    if (max<=0 || (source && source===destination)) return 0;
     const x = Math.floor(ax / size), y = Math.floor(ay / size);
+    const deliver=(type:number,amount:number)=>{
+      if(!destination)return this.pour(bx,by,type,amount,world);
+      const config=destination.data.config, volume=Number(config.volume??0);
+      if(volume>.001&&config.fluidType!==type)return 0;
+      const accepted=Math.min(amount,Math.max(0,Number(config.capacity??22)-volume));
+      if(accepted>0){config.volume=volume+accepted;config.fluidType=type;}
+      return accepted;
+    };
+    if(source){
+      const config=source.data.config, available=Number(config.volume??0);
+      const moved=deliver(Number(config.fluidType??0),Math.min(available,max));
+      config.volume=available-moved;
+      return moved;
+    }
     let moved = 0;
     for (const [dx, dy] of [[0, 0], [0, 1], [-1, 0], [1, 0], [0, 2], [-2, 1], [2, 1]]) {
+      if(!destination&&Math.floor(bx/size)===x+dx&&Math.floor(by/size)===y+dy)continue;
       const cell = this.cells.get(key(x + dx, y + dy));
       if (!cell || moved >= max) continue;
-      const amount = this.pour(bx, by, cell.type, Math.min(cell.amount, max - moved), world);
+      const amount = deliver(cell.type,Math.min(cell.amount,max-moved));
       cell.amount -= amount; moved += amount;
     }
     return moved;
+  }
+  drain(x:number,y:number,max:number) {
+    let drained=0;
+    for(const offset of [0,-.5,.5]) {
+      const cell=this.at(x+offset,y);
+      if(!cell)continue;
+      const amount=Math.min(max-drained,cell.amount);cell.amount-=amount;drained+=amount;
+    }
+    return drained;
   }
   step(world: ForgeWorld, dt: number) {
     this.occupied.clear(); this.flip = !this.flip;

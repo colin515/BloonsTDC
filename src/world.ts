@@ -153,8 +153,8 @@ export class ForgeWorld {
     if (def.family === 'Characters') this.ragdoll(entity);
     if (def.art === 'vehicle') this.wheels(entity);
     if (['automatic-door', 'piston-actuator'].includes(type)) this.actuator(entity);
-    if (def.family === 'Devices') {
-      const ports = devicePorts(type);
+    const ports = devicePorts(type);
+    if (ports.inputs.length || ports.outputs.length) {
       entity.node = {id: data.id, ...ports, out: data.out};
       this.nodes.set(data.id, entity.node);
     }
@@ -508,12 +508,18 @@ export class ForgeWorld {
     }
     runtime.arrived = 0;
     const sign = Math.sign(dx);
-    const low = {x: p.x + .08 * sign, y: p.y + .9 * scale}, high = {x: p.x + .08 * sign, y: p.y - .47 * scale};
+    const low = {x: p.x + .08 * sign, y: p.y + .98 * scale}, high = {x: p.x + .08 * sign, y: p.y - .47 * scale};
     const blocked = this.ray(low, {x: low.x + 1.07 * sign, y: low.y}, data.id);
-    if (blocked && this.ray(high, {x: high.x + 1.05 * sign, y: high.y}, data.id)) { runtime.blocked = 1; return; }
+    if (blocked && this.ray(high, {x: high.x + 1.22 * sign, y: high.y}, data.id)) {
+      runtime.blocked = 1; runtime.blockedUntil = this.time + .3;
+      body.setLinearVelocity(Vec2(0,body.getLinearVelocity().y));
+      return;
+    }
+    if (this.time<(runtime.blockedUntil??0)) return;
     runtime.blocked = 0;
     if (grounded && blocked && this.time > (runtime.jump ?? 0)) {
-      body.applyLinearImpulse(Vec2(sign * .7, -Number(data.config.jumpForce ?? 4.5) * body.getMass()), body.getWorldCenter(), true);
+      const mass = body.getMass() + e.parts.reduce((total,part)=>total+part.body.getMass(),0);
+      body.applyLinearImpulse(Vec2(sign * mass * 1.1, -Number(data.config.jumpForce ?? 4.5) * mass), body.getWorldCenter(), true);
       runtime.jump = this.time + .78; this.sound('jump', p, .28);
     }
     const speed = Number(data.config.speed ?? 2.7);

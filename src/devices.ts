@@ -20,6 +20,7 @@ const channel = field('channel', 'Channel', 'forge');
 const range = field('range', 'Radius (m)', 5, .25, 120, .25);
 const commonSensors = [range, field('filter', 'Type, family or team', ''), field('los', 'Line of sight', false), field('delay', 'Reaction delay (s)', 0, 0, 20, .1), field('cooldown', 'Cooldown (s)', 0, 0, 20, .1), field('latch', 'Latch after detection', false)];
 const targetOutputs = [detected, num('count'), object('object'), num('distance'), num('speed'), vector('position')];
+const pipe=object('tank');
 const powered = field('requirePower', 'Require wired power', false);
 type Device = {inputs: Port[]; outputs: Port[]; settings: Field[]};
 const device = (inputs: Port[], outputs: Port[], settings: Field[] = []): Device => ({inputs, outputs, settings});
@@ -51,7 +52,10 @@ const types: Record<string, Device> = {
   cooler: device([enable,num('target'),power], [active,num('temperature'),port('ready')], [powered,range,field('target','Target (°C)',-12,-100,100,1),field('rate','Transfer rate',2,.1,12,.1)]),
   electromagnet: device([enable,num('force'),power], [active,num('count')], [powered,range,field('force','Attraction force',50,-250,250,1)]),
   'conveyor-belt': device([enable,num('speed'),power], [active,num('speed')], [powered,field('speed','Surface speed',3,-18,18,.1)]),
-  'water-pump': device([enable,num('flow'),num('opening'),power], [active,num('flow'),port('dry')], [powered,field('flow','Flow (cells/s)',6,0,100,.1),field('intakeX','Intake X offset',-1.5,-25,25,.1),field('intakeY','Intake Y offset',.5,-25,25,.1),field('outletX','Outlet X offset',3.5,-25,25,.1),field('outletY','Outlet Y offset',.5,-25,25,.1)]),
+  'water-pump': device([enable,num('flow'),num('opening'),object('intake'),object('outlet'),power], [active,num('flow'),port('dry')], [powered,field('flow','Flow (cells/s)',6,0,100,.1),field('intakeX','Intake X offset',-1.5,-25,25,.1),field('intakeY','Intake Y offset',.5,-25,25,.1),field('outletX','Outlet X offset',3.5,-25,25,.1),field('outletY','Outlet Y offset',.5,-25,25,.1)]),
+  'fluid-tank':device([], [pipe,num('level'),num('volume'),num('fluid')], [field('capacity','Capacity (cells)',22,1,120,1),field('volume','Current volume',0,0,120,.1),field('fluidType','Liquid code',0,0,5,1),field('spill','Spill when tipped',true)]),
+  'flow-pipe':device([pipe,enable,num('opening')], [pipe,active], [field('on','Open',true)]),
+  'fluid-drain':device([pipe,enable], [active,num('drained')], [field('on','Open',true),field('flow','Drain rate',8,.1,80,.1)]),
   'electric-valve': device([enable,num('opening'),power], [active,num('opening')], [powered,field('opening','Opening (%)',100,0,100,1)]),
   'electric-fan': device([enable,num('speed'),power], [active,num('airflow')], [powered,range,field('speed','Airflow',7,-50,50,.1)]),
   'digital-display': device([num('value'),text('text'),enable,power], [active], [powered,field('units','Units',''),field('decimals','Decimals',1,0,6,1)]),
@@ -94,6 +98,7 @@ export function updateDevices(world: ForgeWorld, dt: number) {
     const b = (id: string, fallback = false) => Boolean(setting(id, fallback));
     const requested = (id: string, fallback: number) => typeof input[id] === 'number' ? Number(input[id]) : fallback;
     const on = Boolean(input.enable ?? data.config.on ?? false);
+    const tank = (name: string) => { const v=input[name]; const x=typeof v==='object' && 'ref' in v ? world.entities.get(v.ref) : undefined; return x?.data.type==='fluid-tank' ? x : undefined; };
     const enabled = input.enable !== false && data.config.enabled !== false;
     const supplied = Number(input.power ?? 0);
     const working = enabled && (!b('requirePower') || supplied >= .5);
@@ -322,10 +327,33 @@ export function updateDevices(world: ForgeWorld, dt: number) {
       }
       case 'water-pump': {
         const quantity = working && on ? bounded(requested('flow',n('flow')),0,100)*dt*bounded(requested('opening',100)/100,0,1) : 0;
-        const moved = world.fluid.transfer(p.x+n('intakeX'),p.y+n('intakeY'),p.x+n('outletX'),p.y+n('outletY'),quantity,world);
+        const intake=tank('intake'),outlet=tank('outlet');
+        const missingTank=world.wires.some(w=>w.to===data.id&&((w.input==='intake'&&!intake)||(w.input==='outlet'&&!outlet)));
+        const moved = missingTank ? 0 : world.fluid.transfer(p.x+n('intakeX'),p.y+n('intakeY'),p.x+n('outletX'),p.y+n('outletY'),quantity,world,intake,outlet);
         out.flow = moved / dt; out.active = moved > .001; out.dry = quantity > .001 && !out.active;
         if (out.active) periodic('water',.29,.46);
         break;
+      }
+      case 'fluid-tank': {
+        let volume=bounded(n('volume'),0,n('capacity'));
+        if(b('spill')&&Math.abs(Math.sin(angle/2))>.52&&volume>0)volume-=world.fluid.pour(p.x,p.y+1.1,n('fluidType'),Math.min(volume,8*dt),world);
+        data.config.volume=volume;out.tank={ref:data.id};out.volume=volume;out.level=volume/n('capacity');out.fluid=n('fluidType');
+        if(runtime.liquidMass!==Math.floor(volume*2)){
+          runtime.liquidMass=Math.floor(volume*2);
+          body.getFixtureList()?.setDensity(data.density+volume*.024);
+          body.resetMassData();
+        }
+        break;
+      }
+      case 'flow-pipe':
+        out.active=enabled&&b('on')&&requested('opening',100)>0&&!!tank('tank');
+        if(out.active)out.tank=input.tank;break;
+      case 'fluid-drain': {
+        const source=tank('tank'), amount=enabled&&b('on')?n('flow')*dt:0;
+        const volume=Number(source?.data.config.volume??0);
+        const drained=source?Math.min(volume,amount):world.fluid.drain(p.x,p.y-.35,amount);
+        if(source)source.data.config.volume=volume-drained;
+        out.drained=drained/dt;out.active=drained>0;break;
       }
       case 'electric-valve': out.opening = working && (input.enable ?? true) ? bounded(requested('opening',n('opening')),0,100) : 0; out.active = out.opening > 0; break;
       case 'digital-display':

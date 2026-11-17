@@ -62,6 +62,11 @@ add('Tools & Care', [
 const liquids = ['Water emitter', 'Oil emitter', 'Fuel emitter', 'Chemical emitter', 'Lava emitter', 'Mud emitter', 'Steam emitter', 'Smoke emitter', 'Ice block', 'Snow emitter'];
 const fluidColors = [0x5ab9ef, 0x9b7554, 0xc2a46b, 0xa0dc68, 0xe66c52, 0xa67d60, 0xbcdceb, 0x888fa1, 0x92cce5, 0xe0edf6];
 add('Fluids', liquids.map((label, i) => [label, i === 8 ? 1.15 : .73, i === 8 ? 1.15 : .52, i === 8 ? 'ice' : 'steel', 'box', fluidColors[i], i === 8 ? 'plate' : 'emitter', i]));
+add('Fluids', [
+  ['Fluid tank', 1.95, 1.7, 'steel', 'box', 0x78bac6, 'tank'],
+  ['Flow pipe', 1.9, .34, 'steel', 'box', 0x76a0b4, 'pipe'],
+  ['Fluid drain', .72, .37, 'steel', 'box', 0xaab9b7, 'drain'],
+]);
 const blasters = ['Pulse sidearm', 'Coil revolver', 'Pocket zapper', 'Arc carbine', 'Rapid ion caster', 'Scatter caster', 'Twin scatter caster', 'Longshot', 'Spark repeater', 'Bolt thrower', 'Energy bow', 'Short blade', 'Great blade', 'Chopper', 'Sledge', 'Pike', 'Light blade', 'Light ray', 'Plasma lobber', 'Comet launcher', 'Ember caster', 'Stun ray'];
 add('Blasters', blasters.map((label, i) => [label, i < 3 ? .57 + i * .08 : .74 + (i % 5) * .23, .22 + (i % 4) * .05, i === 10 || i === 12 ? 'wood' : 'steel', 'box', i >= 17 ? 0x9d8cdb : 0x9ba8bc, i >= 11 && i <= 16 ? 'blade' : 'blaster', i]));
 const charges = ['Bounce charge', 'Delayed charge', 'Remote burst', 'Proximity orb', 'Pressure orb', 'Burst barrel', 'Ember charge', 'Shockwave disc', 'Firework capsule', 'Energy orb'];

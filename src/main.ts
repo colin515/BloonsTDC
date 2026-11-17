@@ -6,7 +6,7 @@ import { ForgeView, type Stamp } from './render';
 import type { Vector, Wire } from './signals';
 import { deviceSchema } from './devices';
 import { ForgeAudio, type Mixer } from './audio';
-import { blueprints, deleteSave, exportData, importData, saveBlueprint, saveWorld, verifySnapshot, worlds, type Blueprint } from './persistence';
+import { blueprints, customFile, deleteSave, exportData, importData, saveBlueprint, saveWorld, verifySnapshot, worlds, type Blueprint } from './persistence';
 
 const app=document.querySelector<HTMLElement>('#app')!;
 app.innerHTML=`
@@ -104,7 +104,9 @@ function renderCatalog() {
   const items=el('items');
   if(list==='blueprints') {
     el('family-name').textContent='My builds';
-    items.innerHTML=blueprintCache.filter(b=>b.name.toLowerCase().includes(q)).map((b,i)=>`<button class="blueprint-card" data-blueprint="${html(b.name)}"><span>◇</span><strong>${html(b.name)}</strong><small>${b.entities.length} parts</small></button>`).join('')||'<p class="catalog-empty">Select objects and save a blueprint in the Inspector.</p>';
+    const saved=blueprintCache.filter(b=>b.name.toLowerCase().includes(q)).map(b=>`<button class="blueprint-card" data-blueprint="${html(b.name)}"><span>◇</span><strong>${html(b.name)}</strong><small>${b.entities.length} parts</small></button>`);
+    const custom=catalogManifest.filter(d=>d.id.startsWith('custom-')&&d.label.toLowerCase().includes(q)).map(d=>`<button class="blueprint-card" data-spawn="${d.id}"><span>${partArt(d)}</span><strong>${html(d.label)}</strong><small>Custom part</small></button>`);
+    items.innerHTML=[...saved,...custom].join('')||'<p class="catalog-empty">Save a blueprint or create a custom part.</p>';
     return;
   }
   const filtered=list==='favorites'?catalogManifest.filter(x=>favorite.has(x.id)):list==='recent'?recent.map(id=>definitions.get(id)).filter((x):x is Definition=>!!x):q?catalogManifest:catalogManifest.filter(x=>x.family===family);
@@ -262,6 +264,7 @@ function perform(action:string) {
     case 'target':if(e){inputGoal={id:e.data.id,target:true};notice('Click a target object');}break;
     case 'program':if(e){void import('./blocks').then(m=>m.openBlocks(el<HTMLDialogElement>('block-dialog'),world,e,refresh)).catch(err=>notice(String(err),true));}break;
     case 'custom':if(e)openCustom(e.def);break;
+    case 'export-part':if(e?.def.id.startsWith('custom-'))exportData(e.def.label,customFile(e.def));break;
     case 'clear':if(world.entities.size&&window.confirm('Clear the objects you have placed? You can undo this.')){world.edit(()=>[...world.entities.keys()].forEach(id=>world.remove(id)));selected.clear();placement=undefined;refresh();}break;
   }
 }
@@ -397,6 +400,7 @@ function contextFor(e:Entity,p:Vector){
   if(e.def.family==='Charges')list.unshift(['use','Trigger charge']);
   if(e.def.family==='Blasters'||e.def.family==='Tools & Care')list.unshift(['aim',e.def.family==='Blasters'?'Aim & fire':'Apply to character']);
   if(e.node)list.unshift(['device','Device settings'],['use','Activate']);
+  if(e.def.id.startsWith('custom-'))list.unshift(['export-part','Export custom part']);
   if(e.data.type==='logic-controller')list.unshift(['program','Open Blockly editor']);
   openContext(list,p);
 }
@@ -464,7 +468,7 @@ function openSettings(){
     <section><h3>Audio mixer</h3>${fieldMarkup(f('mute','Mute',audio.mixer.mute),'mix')}${(['master','sfx','machines','environment','ui','ambient'] as const).map(k=>`<label class="property-row"><span>${{master:'Master',sfx:'Gameplay',machines:'Machines',environment:'Environment',ui:'Interface',ambient:'Ambience'}[k]}</span><input type="range" data-mix="${k}" min="0" max="1" step=".01" value="${audio.mixer[k]}"></label>`).join('')}</section></div>`);
 }
 const examples=[
-  ['Workshop','A workbench, movable parts and a powered indicator.'],['Automatic door','A motion sensor opens a physical sliding door.'],['Thermostat','Temperature controls a cooler and heater around a steel sample.'],['Wireless alarm','A pressure plate broadcasts to a remote sounder.'],['Conveyor','A motorised conveyor carries objects toward a chute.'],['Water transfer','An electric pump and valve transfer water between tanks.'],['Vehicle yard','A suspended compact car and a crawler ready to drive.'],
+  ['Workshop','A workbench, movable parts and a powered indicator.'],['Automatic door','A motion sensor opens a physical sliding door.'],['Thermostat','Temperature controls a cooler and heater around a steel sample.'],['Wireless alarm','A pressure plate broadcasts to a remote sounder.'],['Conveyor','A motorised conveyor carries objects toward a chute.'],['Water transfer','An electric pump and valve transfer water between tanks.'],['Vehicle yard','A suspended compact car and a crawler ready to drive.'],['Piped tanks','Watch a pump fill a tank through a pipe.'],
 ];
 function addScenePart(id:string,x:number,y:number,frozen=true,config:Record<string,Setting>={},angle=0){
   const part=world.spawn(id,{x,y},angle,frozen);
@@ -529,6 +533,13 @@ function loadExample(index:number) {
     const sensor=addScenePart('fluid-sensor',4,9.1,true,{minimum:.12});
     const display=addScenePart('digital-display',4.5,5.7,true);
     connectPorts(valve,'opening',pump,'opening');connectPorts(sensor,'level',display,'value');
+  }else if(index===7){
+    const from=addScenePart('fluid-tank',-3.25,8.1,true,{volume:20}),to=addScenePart('fluid-tank',3.4,8.1,true);
+    const pump=addScenePart('water-pump',0,7.2,true,{on:true}),pipe=addScenePart('flow-pipe',1.8,7.5,true);
+    const valve=addScenePart('electric-valve',0,5.6,true,{opening:75});
+    const screen=addScenePart('digital-display',3.4,5.6,true,{units:' units'});
+    connectPorts(from,'tank',pump,'intake');connectPorts(to,'tank',pipe,'tank');connectPorts(pipe,'tank',pump,'outlet');
+    connectPorts(valve,'opening',pump,'opening');connectPorts(to,'volume',screen,'value');
   }else if(index===6){
     addScenePart('compact-car',-2.15,7.7,false);addScenePart('crawler',3.15,7.5,false);addScenePart('shallow-ramp',7.15,8.1,true);
   }
@@ -539,27 +550,91 @@ try{
   const custom=JSON.parse(localStorage.getItem('forge-custom')??'[]');
   if(Array.isArray(custom))custom.slice(0,30).forEach(registerCustomDefinition);
 }catch{/* ignore damaged custom catalog */}
+function persistCustom(d:Definition){
+  registerCustomDefinition(d);
+  try{localStorage.setItem('forge-custom',JSON.stringify(catalogManifest.filter(item=>item.id.startsWith('custom-')).slice(-30)));}catch{notice('The browser could not persist the custom part',true);}
+}
 function openCustom(from?:Definition){
-  const pixels=Array<string>(144).fill('');
-  openDialog('Create custom part','Draw a sprite and set its physical shape.',`<div class="custom-layout"><div class="pixel-grid" aria-label="Pixel editor">${pixels.map((_,i)=>`<button data-pixel="${i}" aria-label="Pixel ${i+1}"></button>`).join('')}</div><div>${[
-    f('name','Name',from?from.label+' custom':'Custom part'),f('width','Width (m)',from?.width??1,.15,8,.05),f('height','Height (m)',from?.height??1,.15,8,.05),{...f('shape','Collision shape','box'),options:['box','circle','ramp']},{...f('material','Material',from?.material??'wood'),options:Object.keys(materials)},f('color','Brush',color(from?.color??0xf4ba74)),
-  ].map(x=>fieldMarkup(x,'custom')).join('')}<div class="dialog-actions"><button data-erase>Erase</button><button data-custom-save class="accent">Save part</button></div></div></div>`);
-  let erase=false,drawing=false;
+  let pixels=from?.pixels?.slice()??Array<string>(144).fill('');
+  const file=from?.id.startsWith('custom-')?'<button data-part-export>Export JSON</button>':'';
+  openDialog('Create custom part','Draw or import an image, then set its physical shape.',`<div class="custom-layout"><div>
+    <div class="pixel-grid" aria-label="Pixel editor">${pixels.map((_,i)=>`<button data-pixel="${i}" aria-label="Pixel ${i+1}"></button>`).join('')}</div>
+    <div class="pixel-tools"><select data-tool aria-label="Drawing tool"><option>Pencil</option><option>Erase</option><option>Fill</option><option>Line</option><option>Rectangle</option><option>Ellipse</option></select><button data-drawing-undo aria-label="Undo drawing">↶</button><button data-drawing-redo aria-label="Redo drawing">↷</button></div>
+    <label class="image-import">Import PNG, JPEG or WebP <input type="file" data-sprite accept="image/png,image/jpeg,image/webp"></label>
+    </div><div>${[
+    f('name','Name',from?from.label+' custom':'Custom part'),f('width','Width (m)',from?.width??1,.15,8,.05),f('height','Height (m)',from?.height??1,.15,8,.05),{...f('shape','Collision shape',['circle','ramp'].includes(from?.shape??'')?from!.shape:'box'),options:['box','circle','ramp']},{...f('material','Material',from?.material??'wood'),options:Object.keys(materials)},f('color','Brush',color(from?.color??0xf4ba74)),
+  ].map(x=>fieldMarkup(x,'custom')).join('')}<div class="dialog-actions"><button data-custom-save class="accent">Save part</button>${file}</div></div></div>`);
   const pixel=dialog.querySelector<HTMLElement>('.pixel-grid')!;
-  const paint=(target:EventTarget|null)=>{const b=(target as HTMLElement|null)?.closest<HTMLButtonElement>('[data-pixel]');if(!b)return;const i=Number(b.dataset.pixel);pixels[i]=erase?'':dialog.querySelector<HTMLInputElement>('[data-custom="color"]')!.value;b.style.background=pixels[i];};
-  pixel.addEventListener('pointerdown',e=>{drawing=true;paint(e.target);});
-  pixel.addEventListener('pointermove',e=>{if(drawing&&e.buttons)paint(document.elementFromPoint(e.clientX,e.clientY));});
-  pixel.addEventListener('pointerup',()=>drawing=false);
-  dialog.querySelector('[data-erase]')!.addEventListener('click',e=>{erase=!erase;(e.target as HTMLElement).classList.toggle('on',erase);});
+  const draw=()=>pixel.querySelectorAll<HTMLButtonElement>('[data-pixel]').forEach((x,i)=>{x.style.background=pixels[i];});
+  const tool=dialog.querySelector<HTMLSelectElement>('[data-tool]')!;
+  const brush=dialog.querySelector<HTMLInputElement>('[data-custom="color"]')!;
+  const undo:string[][]=[],redo:string[][]=[];
+  const remember=()=>{undo.push(pixels.slice());if(undo.length>25)undo.shift();redo.length=0;};
+  const step=(from:string[][],to:string[][])=>{const next=from.pop();if(next){to.push(pixels.slice());pixels=next;draw();}};
+  const index=(target:EventTarget|null)=>Number((target as HTMLElement|null)?.closest<HTMLButtonElement>('[data-pixel]')?.dataset.pixel??-1);
+  const xy=(i:number)=>[i%12,Math.floor(i/12)] as const;
+  let origin=-1,last=-1,before:string[]=[];
+  const paint=(x:number,y:number,value:string)=>{if(x>=0&&x<12&&y>=0&&y<12)pixels[y*12+x]=value;};
+  function line(a:number,b:number,value:string){
+    const [x,y]=xy(a),[u,v]=xy(b),steps=Math.max(Math.abs(u-x),Math.abs(v-y),1);
+    for(let i=0;i<=steps;i++)paint(Math.round(x+(u-x)*i/steps),Math.round(y+(v-y)*i/steps),value);
+  }
+  function stroke(a:number,b:number){
+    const [x,y]=xy(a),[u,v]=xy(b);
+    if(tool.value==='Rectangle'){
+      for(let i=Math.min(x,u);i<=Math.max(x,u);i++){paint(i,y,brush.value);paint(i,v,brush.value);}
+      for(let i=Math.min(y,v);i<=Math.max(y,v);i++){paint(x,i,brush.value);paint(u,i,brush.value);}
+    }else if(tool.value==='Ellipse'){
+      for(let i=0;i<96;i++){const angle=i*Math.PI/48;paint(Math.round((x+u)/2+Math.cos(angle)*Math.abs(u-x)/2),Math.round((y+v)/2+Math.sin(angle)*Math.abs(v-y)/2),brush.value);}
+    }else line(a,b,tool.value==='Erase'?'':brush.value);
+  }
+  function fill(i:number){
+    const target=pixels[i];if(target===brush.value)return;
+    const todo=[i];while(todo.length){
+      const next=todo.pop()!;if(pixels[next]!==target)continue;
+      pixels[next]=brush.value;
+      const [x,y]=xy(next);
+      if(x>0)todo.push(next-1);if(x<11)todo.push(next+1);if(y>0)todo.push(next-12);if(y<11)todo.push(next+12);
+    }
+  }
+  pixel.addEventListener('pointerdown',e=>{
+    const i=index(e.target);if(i<0)return;
+    remember();before=pixels.slice();origin=last=i;pixel.setPointerCapture(e.pointerId);
+    if(tool.value==='Fill'){fill(i);origin=-1;}else stroke(i,i);draw();
+  });
+  pixel.addEventListener('pointermove',e=>{
+    if(origin<0||!e.buttons)return;
+    const i=index(document.elementFromPoint(e.clientX,e.clientY));if(i<0||i===last)return;
+    if(tool.value==='Pencil'||tool.value==='Erase')stroke(last,i);
+    else{pixels=before.slice();stroke(origin,i);}
+    last=i;draw();
+  });
+  pixel.addEventListener('pointerup',()=>origin=-1);
+  pixel.addEventListener('pointercancel',()=>origin=-1);
+  dialog.querySelector('[data-drawing-undo]')!.addEventListener('click',()=>step(undo,redo));
+  dialog.querySelector('[data-drawing-redo]')!.addEventListener('click',()=>step(redo,undo));
+  dialog.querySelector<HTMLInputElement>('[data-sprite]')!.addEventListener('change',e=>void(async()=>{
+    const file=(e.target as HTMLInputElement).files?.[0];
+    if(!file||file.size>3_000_000||!['image/png','image/jpeg','image/webp'].includes(file.type))return;
+    try {
+      const bitmap=await createImageBitmap(file);
+      const canvas=document.createElement('canvas');canvas.width=canvas.height=12;
+      const ctx=canvas.getContext('2d')!,ratio=12/Math.max(bitmap.width,bitmap.height);
+      ctx.drawImage(bitmap,(12-bitmap.width*ratio)/2,(12-bitmap.height*ratio)/2,bitmap.width*ratio,bitmap.height*ratio);bitmap.close();
+      const values=ctx.getImageData(0,0,12,12).data;
+      remember();pixels=pixels.map((_,i)=>values[i*4+3]>98?color((values[i*4]<<16)+(values[i*4+1]<<8)+values[i*4+2]):'');draw();
+    }catch{notice('The image could not be decoded',true);}
+  })());
+  dialog.querySelector('[data-part-export]')?.addEventListener('click',()=>{if(from)exportData(from.label,customFile(from));});
   dialog.querySelector('[data-custom-save]')!.addEventListener('click',()=>{
     const props=Object.fromEntries([...dialog.querySelectorAll<HTMLInputElement|HTMLSelectElement>('[data-custom]')].map(x=>[x.dataset.custom,readField(x)]));
     const label=String(props.name).trim().slice(0,70);if(!label)return;
     const item:Definition={id:'custom-'+crypto.randomUUID(),label,family:'Building',width:Number(props.width),height:Number(props.height),material:props.material as Definition['material'],shape:props.shape as Definition['shape'],art:'custom',color:parseInt(String(props.color).slice(1),16),detail:1,tags:['custom'],pixels};
     if(catalogManifest.filter(d=>d.id.startsWith('custom-')).length>=30){notice('Custom part limit reached',true);return;}
-    registerCustomDefinition(item);
-    try{localStorage.setItem('forge-custom',JSON.stringify(catalogManifest.filter(d=>d.id.startsWith('custom-'))));}catch{notice('This browser could not persist your custom part',true);}
-    dialog.close();tab('parts');el<HTMLInputElement>('search').value=label;renderCatalog();begin(item.id);notice('Custom part saved');
+    persistCustom(item);
+    dialog.close();el<HTMLInputElement>('search').value='';tab('blueprints');begin(item.id);notice('Custom part saved');
   });
+  draw();
 }
 function openJoint(id:string) {
   const entry=world.links.get(id);if(!entry)return;
@@ -666,7 +741,8 @@ el('import').addEventListener('change',e=>{
   const input=e.target as HTMLInputElement,file=input.files?.[0];
   if(!file)return;
   void importData(file).then(async value=>{
-    if('version' in value){if(dialog.open)dialog.close();loadSnapshot(value);}
+    if('kind' in value){if(dialog.open)dialog.close();persistCustom(value.definition);el<HTMLInputElement>('search').value='';tab('blueprints');notice('Custom part imported');}
+    else if('version' in value){if(dialog.open)dialog.close();loadSnapshot(value);}
     else{await saveBlueprint(value);blueprintCache=await blueprints();if(dialog.open)dialog.close();tab('blueprints');notice('Blueprint imported');}
   }).catch(err=>notice(err instanceof Error?err.message:'Import failed',true)).finally(()=>input.value='');
 });
@@ -897,7 +973,7 @@ async function start(){
     if(now-stat>260){
       const fps=Math.round(frameCount*1000/(now-stat));
       el('metrics').textContent=showMetrics?fps+' FPS  ·  '+world.entities.size+' objects  ·  '+world.wires.length+' wires':'';
-      liveInspector();stat=now;frameCount=0;
+      liveInspector();audio.syncMachines(world,paused||document.hidden);stat=now;frameCount=0;
     }
     if(!el('notice').hidden&&now-lastNotice>3100)el('notice').hidden=true;
     if(autoSave&&Date.now()-lastAutosave>=autoSave*60000&&world.entities.size){lastAutosave=Date.now();void saveWorld('Autosave',world.snapshot()).catch(()=>{});}

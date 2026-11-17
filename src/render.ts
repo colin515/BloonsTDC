@@ -295,9 +295,12 @@ export class ForgeView {
     v.root.visible=visible;v.parts.forEach(g=>g.visible=visible);
     if(v.text)v.text.visible=visible;
     if(!visible) return;
-    const style=[data.type,data.scale,data.color,data.frozen,e.parts.length,selected].join('/');
+    const fill=def.art==='tank'?Math.round(Number(e.node?.out.level??0)*28)/28:0;
+    const fluid=Number(data.config.fluidType??0);
+    const style=[data.type,data.scale,data.color,data.frozen,e.parts.length,selected,fill,fluid].join('/');
     if(v.style!==style) {
       drawObject(v.root,def,width,height,data.color);
+      if(fill>0) v.root.rect(-width*.34,height*(.33-.66*fill),width*.68,height*.66*fill).fill({color:liquidColors[fluid]??liquidColors[0],alpha:.77});
       if(selected) v.root.rect(-width/2-.09,-height/2-.09,width+.18,height+.18).stroke({color:0xa3f0dc,width:.04,alpha:.96});
       if(data.frozen) v.root.circle(width/2-.02,-height/2+.02,.048).fill(0xe2eab7);
       v.parts.forEach(g=>g.destroy());v.parts=[];

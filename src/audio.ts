@@ -1,5 +1,5 @@
 import type { Camera } from './render';
-import type { Sound } from './world';
+import type { ForgeWorld, Sound } from './world';
 
 export type Mixer = { master:number;ui:number;sfx:number;machines:number;environment:number;ambient:number;mute:boolean };
 const defaults: Mixer={master:.68,ui:.62,sfx:.8,machines:.62,environment:.45,ambient:.34,mute:false};
@@ -19,6 +19,7 @@ export class ForgeAudio {
   private bus?: DynamicsCompressorNode;
   private buffer?:AudioBuffer;
   private voices=0;
+  private loops=new Map<string,{osc:OscillatorNode;volume:GainNode;pan:StereoPannerNode}>();
   mixer:Mixer = {...defaults};
   constructor(readonly camera:Camera) {
     try {
@@ -47,6 +48,7 @@ export class ForgeAudio {
   }
   play(event:Sound) {
     const ctx=this.ctx;
+    if(event.group==='machines'&&['motor','fan','generator'].includes(event.name)) return;
     if(!ctx||ctx.state!=='running'||this.mixer.mute||this.voices>=24||!this.bus) return;
     const dx=event.x===undefined?0:event.x-this.camera.x,dy=event.y===undefined?0:event.y-this.camera.y;
     const dist=Math.hypot(dx,dy), gain=this.mixer.master*this.mixer[event.group]*event.level/(1+dist*.069);
@@ -68,4 +70,39 @@ export class ForgeAudio {
     }
     osc.onended=()=>{this.voices--;chain.disconnect();pan.disconnect();};
   }
+  syncMachines(world:ForgeWorld,paused:boolean) {
+    const ctx=this.ctx, bus=this.bus;
+    if(!ctx||!bus)return;
+    const now=ctx.currentTime, audible=new Set<string>();
+    const mute=paused||this.mixer.mute||ctx.state!=='running';
+    if(!mute)for(const e of world.entities.values()){
+      if(audible.size>=8)break;
+      const id=e.data.id,type=e.data.type;
+      const machine=e.node?.out.active||e.node?.out.running;
+      const rolling=e.def.family==='Vehicles'&&(world.time-(e.runtime.motorSound??0)<.22);
+      if(!rolling&&(!machine||!['electric-motor','electric-fan','conveyor-belt','generator'].includes(type)))continue;
+      const p=e.body.getPosition(),x=p.x-this.camera.x,y=p.y-this.camera.y,d=Math.hypot(x,y);
+      if(d>40)continue;
+      const loudness=this.mixer.master*this.mixer.machines*.09/(1+d*.15);
+      if(loudness<.004)continue;
+      audible.add(id);
+      let loop=this.loops.get(id);
+      if(!loop){
+        const osc=ctx.createOscillator(),volume=ctx.createGain(),pan=ctx.createStereoPanner();
+        osc.type=type==='generator'?'sawtooth':'triangle';volume.gain.value=0;
+        osc.connect(volume).connect(pan).connect(bus);osc.start();
+        loop={osc,volume,pan};this.loops.set(id,loop);
+      }
+      const frequency=type==='generator'?65:type==='electric-fan'?114:74+Math.min(100,Math.abs(Number(e.node?.out.rpm??e.body.getLinearVelocity().x))*.55);
+      loop.osc.frequency.setTargetAtTime(frequency,now,.13);
+      loop.volume.gain.setTargetAtTime(loudness,now,.08);
+      loop.pan.pan.setTargetAtTime(Math.max(-1,Math.min(1,x/(this.camera.width/this.camera.zoom*.45))),now,.12);
+    }
+    for(const [id,loop] of this.loops)if(!audible.has(id)){
+      loop.volume.gain.setTargetAtTime(0,now,.035);loop.osc.stop(now+.17);
+      loop.osc.onended=()=>{loop.osc.disconnect();loop.volume.disconnect();loop.pan.disconnect();};
+      this.loops.delete(id);
+    }
+  }
+
 }

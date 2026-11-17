@@ -9,11 +9,11 @@ import {verifySnapshot} from '../src/persistence';
 
 const tick=(w:ForgeWorld,n:number)=>{for(let i=0;i<n;i++)w.step(1/60);};
 test('every catalog part instantiates, including 37 devices and 16 vehicles',()=>{
-  assert.equal(catalogManifest.length,205);
-  assert.equal(new Set(catalogManifest.map(d=>d.id)).size,205);
+  assert.equal(catalogManifest.length,208);
+  assert.equal(new Set(catalogManifest.map(d=>d.id)).size,208);
   const w=new ForgeWorld();
   for(const [i,d] of catalogManifest.entries()) assert.ok(w.spawn(d.id,{x:(i%21)*6-60,y:Math.floor(i/21)*-5},0,true),d.id);
-  assert.equal(w.nodes.size,37);
+  assert.equal([...w.nodes.keys()].filter(id=>w.entities.get(id)?.def.family==='Devices').length,37);
   assert.equal(catalogManifest.filter(d=>d.family==='Vehicles').length,16);
   assert.doesNotThrow(()=>tick(w,15));
 });
@@ -135,4 +135,50 @@ test('bounded visual programs yield at waits and abort runaway loops',()=>{
   for(let i=0;i<170;i++)runaway.step(i/60,{});
   assert.match(runaway.error,/quota exceeded/);
   assert.equal(validateProgram({event:'cycle',input:'x',steps:[3]}),false);
+});
+
+test('piped tanks keep an exact volume total and supply a configurable drain',()=>{
+  const w=new ForgeWorld();
+  const a=w.spawn('fluid-tank',{x:0,y:2},0,true)!,b=w.spawn('fluid-tank',{x:4,y:2},0,true)!;
+  const pump=w.spawn('water-pump',{x:2,y:2},0,true)!,pipe=w.spawn('flow-pipe',{x:3,y:2},0,true)!;
+  a.data.config.volume=13;pump.data.config.on=true;
+  w.wire({from:a.data.id,output:'tank',to:pump.data.id,input:'intake'});
+  w.wire({from:b.data.id,output:'tank',to:pipe.data.id,input:'tank'});
+  w.wire({from:pipe.data.id,output:'tank',to:pump.data.id,input:'outlet'});
+  tick(w,91);
+  assert.ok(Number(b.data.config.volume)>6);
+  assert.ok(Math.abs(Number(a.data.config.volume)+Number(b.data.config.volume)-13)<1e-6);
+  const drain=w.spawn('fluid-drain',{x:5,y:2},0,true)!;
+  w.wire({from:b.data.id,output:'tank',to:drain.data.id,input:'tank'});
+  pump.data.config.on=false;tick(w,120);
+  assert.equal(b.data.config.volume,0);
+});
+
+test('an active character reaches its destination over a low block and stops at a tall wall',()=>{
+  for(const type of ['wood-cube','concrete-wall']){
+    const w=new ForgeWorld(),npc=w.spawn('melon',{x:-4,y:7.2})!;
+    Object.assign(npc.data.config,{ai:true,task:'Walk To',goalX:5,speed:2.7});
+    w.spawn(type,{x:0,y:type==='wood-cube'?8.5:7.4},0,true);
+    tick(w,660);
+    if(type==='wood-cube'){
+      assert.ok(npc.runtime.jump);
+      assert.equal(npc.runtime.arrived,1);
+      assert.ok(npc.body.getPosition().x>4.4);
+    } else {
+      assert.equal(npc.runtime.blocked,1);
+      assert.ok(npc.body.getPosition().x<-2.2);
+    }
+  }
+});
+
+test('wheel-driven prefab moves under driver control and retains its assembly on save',()=>{
+  const w=new ForgeWorld(), car=w.spawn('compact-car',{x:0,y:7.7})!;
+  w.active=car.data.id;w.keys.add('KeyD');tick(w,120);
+  assert.ok(car.body.getPosition().x>6);
+  assert.equal(car.parts.length,2);
+  const saved=w.snapshot();
+  const next=new ForgeWorld();next.load(saved);
+  const restored=next.entities.get(car.data.id)!;
+  assert.equal(restored.internal.length,2);
+  assert.ok(Math.abs(restored.parts[0].body.getAngularVelocity())>1);
 });

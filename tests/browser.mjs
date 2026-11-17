@@ -5,6 +5,8 @@ import { chromium } from 'playwright';
 
 const external = process.env.FORGE_BROWSER_URL;
 const url = external || 'http://127.0.0.1:4179/BloonsTDC/';
+const expectedParts=Number(process.env.FORGE_PARTS??208);
+const scope=new URL(url).origin+new URL(url).pathname;
 const server = external ? undefined : spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--host', '127.0.0.1', '--port', '4179', '--strictPort'], {stdio:'ignore'});
 let browser;
 try {
@@ -17,18 +19,24 @@ try {
     assert.ok(ready, 'production preview started');
   }
   const executablePath = process.env.FORGE_CHROMIUM || (existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined);
-  browser = await chromium.launch({executablePath, args:['--no-sandbox','--disable-dev-shm-usage','--enable-webgl','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
-  const page = await browser.newPage({viewport:{width:1366,height:768}});
+  const proxy = process.env.FORGE_BROWSER_PROXY ? {server:process.env.FORGE_BROWSER_PROXY} : undefined;
+  browser = await chromium.launch({executablePath, proxy, args:['--no-sandbox','--disable-dev-shm-usage','--enable-webgl','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+  const page = await browser.newPage({viewport:{width:1366,height:768},ignoreHTTPSErrors:!!proxy&&process.env.FORGE_BROWSER_PROXY_CERT_TEST==='1'});
+  await page.addInitScript(()=>{
+    window.forgeOscillators=0;
+    const original=AudioContext.prototype.createOscillator;
+    AudioContext.prototype.createOscillator=function(){window.forgeOscillators++;return original.call(this);};
+  });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
-  page.on('requestfailed', req => {if (req.url().startsWith(url) && req.failure()?.errorText !== 'net::ERR_ABORTED') errors.push(req.url()+' '+req.failure()?.errorText);});
-  page.on('response', res => {if (res.url().startsWith(url) && res.status()>=400) errors.push(res.status()+' '+res.url());});
+  page.on('requestfailed', req => {if (req.url().startsWith(scope) && req.failure()?.errorText !== 'net::ERR_ABORTED') errors.push(req.url()+' '+req.failure()?.errorText);});
+  page.on('response', res => {if (res.url().startsWith(scope) && res.status()>=400) errors.push(res.status()+' '+res.url());});
   page.on('dialog', async dialog => { if (dialog.type()==='prompt') await dialog.accept('Smoke world'); else await dialog.accept(); });
   await page.goto(url, {waitUntil:'networkidle'});
   await page.locator('#field canvas').waitFor();
   await page.waitForFunction(()=>document.querySelector('#metrics')?.textContent?.includes('objects'));
   assert.equal(await page.title(),'Sandbox Forge');
-  assert.equal(await page.locator('#part-count').innerText(),'205 parts');
+  assert.equal(await page.locator('#part-count').innerText(),expectedParts+' parts');
   if (process.env.FORGE_SCREENSHOT) await page.screenshot({path:process.env.FORGE_SCREENSHOT});
 
   await page.locator('[data-spawn="wood-beam"]').click();
@@ -77,6 +85,20 @@ try {
   await page.locator('[data-apply]').click();
   await page.locator('#block-dialog').waitFor({state:'hidden'});
 
+  if(expectedParts>=208){
+    await page.locator('#brand').click();
+    await page.locator('[data-command="custom"]').click();
+    await page.locator('[data-custom="name"]').fill('Chrome test custom');
+    await page.locator('[data-pixel="48"]').click();
+    await page.locator('[data-pixel="49"]').click();
+    await page.locator('[data-drawing-undo]').click();
+    await page.locator('[data-drawing-redo]').click();
+    await page.locator('[data-custom-save]').click();
+    await page.locator('#ghost-x').fill('5');
+    await page.locator('#ghost-x').press('Enter');
+    await page.locator('.selection-title', {hasText:'Chrome test custom'}).waitFor();
+  }
+  await page.waitForFunction(()=>window.forgeOscillators>0);
   await page.locator('#save').click();
   await page.locator('#notice', {hasText:'World saved'}).waitFor();
   await page.reload({waitUntil:'networkidle'});
@@ -90,8 +112,13 @@ try {
   await page.locator('[data-mix="master"]').fill('0.33');
   const pref=await page.evaluate(()=>JSON.parse(localStorage.getItem('forge-audio')??'{}'));
   assert.equal(pref.master,.33);
+  if(expectedParts>=208) {
+    await page.locator('#dialog [data-close]').click();
+    await page.locator('[data-list="blueprints"]').click();
+    await page.locator('[data-spawn^="custom-"]',{hasText:'Chrome test custom'}).waitFor();
+  }
   assert.deepEqual(errors,[]);
-  console.log('Chromium passed: Pages path, live placement, undo, context, drag/drop, four maps, Blockly, IndexedDB reload and mixer.');
+  console.log('Chromium passed: Pages path, live placement, undo, context, drag/drop, four maps, Blockly, IndexedDB reload, custom part (when present) and Web Audio/mixer.');
 } finally {
   await browser?.close();
   server?.kill();

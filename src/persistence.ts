@@ -56,7 +56,7 @@ function validateObjects(value:Record<string,unknown>) {
   const ids=new Set(value.entities.map(x=>x.id)); if(ids.size!==value.entities.length)return false;
   const nodes=new Map<string,Node>(value.entities.map(x=>[x.id,{id:x.id,...devicePorts(x.type),out:x.out}]));
   if(!value.links.every(x=>obj(x)&&str(x.id,80)&&typeof x.a==='string'&&typeof x.b==='string'&&x.a!==x.b&&ids.has(x.a)&&ids.has(x.b)&&['Weld','Hinge','Rope','Spring','Slider','Suspension'].includes(String(x.kind))&&['ax','ay','bx','by'].every(k=>finite(x[k],-160,160))&&finite(x.strength,.05,50)&&finite(x.speed,-100,100)&&typeof x.collide==='boolean'))return false;
-  return value.wires.every(w=>obj(w)&&typeof w.from==='string'&&typeof w.to==='string'&&typeof w.output==='string'&&typeof w.input==='string'&&canConnect(nodes,{from:w.from,to:w.to,output:w.output,input:w.input})&&(w.bends===undefined||(Array.isArray(w.bends)&&w.bends.length<=40&&w.bends.every(b=>obj(b)&&finite(b.x)&&finite(b.y)))));
+  return value.wires.every(w=>obj(w)&&typeof w.from==='string'&&typeof w.to==='string'&&typeof w.output==='string'&&typeof w.input==='string'&&canConnect(nodes,{from:w.from,to:w.to,output:w.output,input:w.input})&&(w.color===undefined||finite(w.color,0,0xffffff))&&(w.bends===undefined||(Array.isArray(w.bends)&&w.bends.length<=40&&w.bends.every(b=>obj(b)&&finite(b.x)&&finite(b.y)))));
 }
 export function verifySnapshot(value:unknown):value is Snapshot {
   if(!obj(value)||value.version!==1||!maps.some(m=>m.id===value.map)||!obj(value.settings)||!validateObjects(value))return false;
@@ -68,10 +68,13 @@ export function verifySnapshot(value:unknown):value is Snapshot {
 export function verifyBlueprint(value:unknown):value is Blueprint {
   return obj(value)&&str(value.name,80)&&finite(value.updated,0,9e15)&&validateObjects(value);
 }
+export type CustomFile = { kind:'forge-part'; version:1; definition:Definition };
+export function customFile(definition:Definition):CustomFile {return {kind:'forge-part',version:1,definition};}
 export async function importData(file:File) {
   if(file.size>maxFile)throw Error('File exceeds 4 MB');
   const value:unknown=JSON.parse(await file.text());
   if(verifySnapshot(value)||verifyBlueprint(value))return value;
+  if(obj(value)&&value.kind==='forge-part'&&value.version===1&&isCustomDefinition(value.definition))return customFile(value.definition);
   throw Error('Unsupported or damaged Forge file');
 }
 export function exportData(name:string,value:unknown) {
