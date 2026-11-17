@@ -1,0 +1,9 @@
+export type Terrain = { x: number; y: number; w: number; h: number; look?: string };
+export type MapId = 'classic' | 'industrial' | 'water' | 'moon';
+export type MapSpec = { id: MapId; name: string; description: string; sky: number; accent: number; gravity: number; ground: number; friction: number; terrain: Terrain[] };
+export const maps: MapSpec[] = [
+  { id: 'classic', name: 'Classic Flat', description: 'A wide test range for anything you can build.', sky: 0x202935, accent: 0xf4b976, gravity: 9.81, ground: 9, friction: .72, terrain: [{x: 0, y: 10.5, w: 220, h: 3}] },
+  { id: 'industrial', name: 'Industrial City', description: 'Catwalks, loading bays and an open workshop below.', sky: 0x272b36, accent: 0xf2a26d, gravity: 9.81, ground: 9, friction: .8, terrain: [{x: 0, y: 10.5, w: 220, h: 3}, {x: -11, y: 4.9, w: 12, h: .43, look: 'steel'}, {x: -15, y: 7, w: .48, h: 4, look: 'steel'}, {x: 11, y: 6.1, w: 8, h: .46, look: 'steel'}, {x: 14, y: 7.6, w: .46, h: 3, look: 'steel'}, {x: 6, y: 7.6, w: 2.8, h: .52, look: 'steel'}, {x: 19, y: 3.6, w: 6, h: .4, look: 'steel'}] },
+  { id: 'water', name: 'Water Laboratory', description: 'Two tanks for buoyancy, pumps and fluid experiments.', sky: 0x162c3a, accent: 0x6ecce0, gravity: 9.81, ground: 10, friction: .62, terrain: [{x: 0, y: 11.5, w: 220, h: 3}, {x: -11, y: 7.15, w: .5, h: 5.7}, {x: 1, y: 7.15, w: .55, h: 5.7}, {x: 12, y: 7.15, w: .55, h: 5.7}, {x: 16, y: 6.9, w: 6, h: .35}, {x: -14, y: 4.8, w: 5.5, h: .36}] },
+  { id: 'moon', name: 'Moon & Space', description: 'Low gravity, long jumps and room to test thrusters.', sky: 0x141a2b, accent: 0xb9b0ee, gravity: 1.62, ground: 9, friction: .56, terrain: [{x: 0, y: 10.5, w: 220, h: 3}, {x: -16, y: 8.65, w: 4, h: .7, look: 'rock'}, {x: 12, y: 8.65, w: 3.4, h: .7, look: 'rock'}, {x: 16, y: 8.2, w: 4, h: 1.6, look: 'rock'}, {x: -26, y: 7.9, w: 4.5, h: 2.2, look: 'rock'}] },
+];
